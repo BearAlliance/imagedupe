@@ -143,8 +143,6 @@ def move_duplicates(
         if image.path in moved_paths:
             continue
 
-        print(f"[compare {index + 1}/{total_images}] {image.path.name}")
-
         for candidate in images[index + 1 :]:
             if candidate.path in moved_paths:
                 continue
