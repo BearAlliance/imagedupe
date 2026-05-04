@@ -20,9 +20,16 @@ Optional threshold tuning:
 python3 find_duplicates.py /path/to/images --threshold 6
 ```
 
+Recursive scan:
+
+```bash
+python3 find_duplicates.py /path/to/images --recursive
+```
+
 Behavior:
 
 - Compares top-level image files in the target directory.
+- Optionally scans subdirectories with `--recursive`.
 - Treats images with a perceptual hash distance at or below the threshold as duplicates.
 - Moves the smaller file from each duplicate match into `duplicates/`.
 - Prints the total size of moved duplicate files.

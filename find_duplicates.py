@@ -46,6 +46,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("directory", help="Directory containing images to compare")
     parser.add_argument(
+        "--recursive",
+        action="store_true",
+        help="Recursively scan subdirectories for images",
+    )
+    parser.add_argument(
         "--threshold",
         type=int,
         default=6,
@@ -73,8 +78,13 @@ def hamming_distance(left: int, right: int) -> int:
     return bin(left ^ right).count("1")
 
 
-def iter_image_paths(directory: Path) -> Iterable[Path]:
-    for path in sorted(directory.iterdir()):
+def iter_image_paths(directory: Path, recursive: bool = False) -> Iterable[Path]:
+    iterator = directory.rglob("*") if recursive else directory.iterdir()
+    duplicates_dir = directory / "duplicates"
+
+    for path in sorted(iterator):
+        if path == duplicates_dir or duplicates_dir in path.parents:
+            continue
         if not path.is_file():
             continue
         if path.suffix.lower() in SUPPORTED_EXTENSIONS:
@@ -89,8 +99,8 @@ def build_image_info(path: Path) -> ImageInfo:
     )
 
 
-def collect_images(directory: Path) -> list[ImageInfo]:
-    image_paths = list(iter_image_paths(directory))
+def collect_images(directory: Path, recursive: bool = False) -> list[ImageInfo]:
+    image_paths = list(iter_image_paths(directory, recursive=recursive))
     images: list[ImageInfo] = []
     total = len(image_paths)
 
@@ -221,7 +231,7 @@ def main() -> int:
         print("Threshold must be zero or greater.", file=sys.stderr)
         return 1
 
-    images = collect_images(directory)
+    images = collect_images(directory, recursive=args.recursive)
     moved_count, moved_bytes = move_duplicates(images, directory, args.threshold)
     print(f"Scanned {len(images)} image(s).")
     print(f"Moved {moved_count} duplicate image(s).")
