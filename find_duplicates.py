@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -79,6 +81,14 @@ def iter_image_paths(directory: Path) -> Iterable[Path]:
             yield path
 
 
+def build_image_info(path: Path) -> ImageInfo:
+    return ImageInfo(
+        path=path,
+        size_bytes=path.stat().st_size,
+        perceptual_hash=average_hash(path),
+    )
+
+
 def collect_images(directory: Path) -> list[ImageInfo]:
     image_paths = list(iter_image_paths(directory))
     images: list[ImageInfo] = []
@@ -87,18 +97,26 @@ def collect_images(directory: Path) -> list[ImageInfo]:
     if total:
         print(f"Hashing {total} image(s)...")
 
-    for index, path in enumerate(image_paths, start=1):
-        try:
-            images.append(
-                ImageInfo(
-                    path=path,
-                    size_bytes=path.stat().st_size,
-                    perceptual_hash=average_hash(path),
-                )
-            )
-            print(f"[hash {index}/{total}] {path.name}")
-        except (OSError, UnidentifiedImageError) as exc:
-            print(f"Skipping unreadable image {path.name}: {exc}", file=sys.stderr)
+    if not total:
+        return images
+
+    max_workers = min(32, max(1, (os.cpu_count() or 1) + 4), total)
+    completed = 0
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_path = {executor.submit(build_image_info, path): path for path in image_paths}
+        for future in as_completed(future_to_path):
+            path = future_to_path[future]
+            try:
+                images.append(future.result())
+            except (OSError, UnidentifiedImageError) as exc:
+                print(f"Skipping unreadable image {path.name}: {exc}", file=sys.stderr)
+
+            completed += 1
+            print(f"\r[hash {completed}/{total}]", end="", flush=True)
+
+    print()
+    images.sort(key=lambda image: image.path)
     return images
 
 
