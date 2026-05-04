@@ -163,7 +163,8 @@ def move_duplicates(
             moved_bytes += duplicate.size_bytes
             print(
                 f"Moved duplicate {duplicate.path.name} "
-                f"({duplicate.size_bytes} bytes) -> duplicates/; kept {original.path.name}"
+                f"({format_bytes(duplicate.size_bytes)}) -> duplicates/; "
+                f"kept {original.path.name} ({format_bytes(original.size_bytes)})"
             )
 
             if duplicate.path == image.path:
