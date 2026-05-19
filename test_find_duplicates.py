@@ -13,6 +13,7 @@ from find_duplicates import (
     iter_image_paths,
     move_duplicates,
     unique_destination,
+    visual_difference,
 )
 
 
@@ -141,6 +142,19 @@ def test_iter_image_paths_skips_duplicates_dir(tmp_path):
     assert all(p.name != "b.jpg" for p in paths)
 
 
+def test_iter_image_paths_skips_nested_duplicates_dir(tmp_path):
+    sub = tmp_path / "vacation"
+    sub.mkdir()
+    (sub / "a.jpg").touch()
+    nested_dupes = sub / "duplicates"
+    nested_dupes.mkdir()
+    (nested_dupes / "b.jpg").touch()
+    paths = list(iter_image_paths(tmp_path, recursive=True))
+    names = {p.name for p in paths}
+    assert "a.jpg" in names
+    assert "b.jpg" not in names
+
+
 def test_iter_image_paths_non_recursive_skips_subdir(tmp_path):
     sub = tmp_path / "sub"
     sub.mkdir()
@@ -202,6 +216,23 @@ def test_average_hash_different_images_differ(tmp_path):
     assert average_hash(a) != average_hash(b)
 
 
+# --- visual_difference ---
+
+def test_visual_difference_identical_images_is_zero(tmp_path):
+    p1 = _solid_image(tmp_path, 100, "a.png")
+    p2 = _solid_image(tmp_path, 100, "b.png")
+    assert visual_difference(p1, p2) == 0
+
+
+def test_visual_difference_different_colors_is_large(tmp_path):
+    red = tmp_path / "red.png"
+    blue = tmp_path / "blue.png"
+    Image.new("RGB", (64, 64), (255, 0, 0)).save(red)
+    Image.new("RGB", (64, 64), (0, 0, 255)).save(blue)
+    assert average_hash(red) == average_hash(blue)
+    assert visual_difference(red, blue) > 100
+
+
 # --- move_duplicates ---
 
 def _make_solid_image_file(path: Path, color: int) -> Path:
@@ -249,6 +280,35 @@ def test_move_duplicates_no_duplicates(tmp_path):
     images = [
         ImageInfo(path=img_a, size_bytes=img_a.stat().st_size, perceptual_hash=average_hash(img_a)),
         ImageInfo(path=img_b, size_bytes=img_b.stat().st_size, perceptual_hash=average_hash(img_b)),
+    ]
+
+    moved_count, moved_bytes = move_duplicates(images, tmp_path, threshold=6)
+
+    assert moved_count == 0
+    assert moved_bytes == 0
+    assert img_a.exists()
+    assert img_b.exists()
+
+
+def test_move_duplicates_same_hash_different_colors_not_duplicates(tmp_path):
+    img_a = tmp_path / "red.png"
+    img_b = tmp_path / "blue.png"
+    Image.new("RGB", (64, 64), (255, 0, 0)).save(img_a)
+    Image.new("RGB", (64, 64), (0, 0, 255)).save(img_b)
+
+    assert average_hash(img_a) == average_hash(img_b)
+
+    images = [
+        ImageInfo(
+            path=img_a,
+            size_bytes=img_a.stat().st_size,
+            perceptual_hash=average_hash(img_a),
+        ),
+        ImageInfo(
+            path=img_b,
+            size_bytes=img_b.stat().st_size,
+            perceptual_hash=average_hash(img_b),
+        ),
     ]
 
     moved_count, moved_bytes = move_duplicates(images, tmp_path, threshold=6)

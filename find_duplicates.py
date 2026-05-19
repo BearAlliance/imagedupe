@@ -31,6 +31,8 @@ SUPPORTED_EXTENSIONS = {
     ".tiff",
     ".webp",
 }
+VISUAL_COMPARE_SIZE = 32
+MAX_VISUAL_DIFFERENCE = 18.0
 
 
 @dataclass(frozen=True)
@@ -78,12 +80,45 @@ def hamming_distance(left: int, right: int) -> int:
     return bin(left ^ right).count("1")
 
 
+def visual_difference(
+    left_path: Path, right_path: Path, compare_size: int = VISUAL_COMPARE_SIZE
+) -> float:
+    with Image.open(left_path) as left_image, Image.open(right_path) as right_image:
+        left_image = ImageOps.exif_transpose(left_image).convert("RGB")
+        right_image = ImageOps.exif_transpose(right_image).convert("RGB")
+        left_image = left_image.resize(
+            (compare_size, compare_size), Image.Resampling.LANCZOS
+        )
+        right_image = right_image.resize(
+            (compare_size, compare_size), Image.Resampling.LANCZOS
+        )
+        left_pixels = list(left_image.getdata())
+        right_pixels = list(right_image.getdata())
+
+    total_difference = 0
+    for left_pixel, right_pixel in zip(left_pixels, right_pixels):
+        total_difference += sum(
+            abs(left_channel - right_channel)
+            for left_channel, right_channel in zip(left_pixel, right_pixel)
+        )
+
+    return total_difference / (len(left_pixels) * 3)
+
+
+def images_are_duplicates(first: ImageInfo, second: ImageInfo, threshold: int) -> bool:
+    hash_distance = hamming_distance(first.perceptual_hash, second.perceptual_hash)
+    if hash_distance > threshold:
+        return False
+
+    return visual_difference(first.path, second.path) <= MAX_VISUAL_DIFFERENCE
+
+
 def iter_image_paths(directory: Path, recursive: bool = False) -> Iterable[Path]:
     iterator = directory.rglob("*") if recursive else directory.iterdir()
-    duplicates_dir = directory / "duplicates"
 
     for path in sorted(iterator):
-        if path == duplicates_dir or duplicates_dir in path.parents:
+        relative = path.relative_to(directory)
+        if "duplicates" in relative.parts[:-1]:
             continue
         if not path.is_file():
             continue
@@ -175,8 +210,7 @@ def move_duplicates(
             if candidate.path in moved_paths:
                 continue
 
-            distance = hamming_distance(image.perceptual_hash, candidate.perceptual_hash)
-            if distance > threshold:
+            if not images_are_duplicates(image, candidate, threshold):
                 continue
 
             duplicate, original = choose_duplicate(image, candidate)
