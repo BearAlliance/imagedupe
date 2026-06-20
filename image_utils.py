@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -29,6 +30,7 @@ SUPPORTED_EXTENSIONS = {
 }
 VISUAL_COMPARE_SIZE = 32
 MAX_VISUAL_DIFFERENCE = 18.0
+CACHE_FILE = Path(__file__).parent / ".hash_cache.json"
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,20 @@ class ImageInfo:
     path: Path
     size_bytes: int
     perceptual_hash: int
+
+
+def _load_cache(cache_file: Path) -> dict:
+    try:
+        return json.loads(cache_file.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_cache(cache: dict, cache_file: Path) -> None:
+    try:
+        cache_file.write_text(json.dumps(cache))
+    except OSError:
+        pass
 
 
 def average_hash(path: Path, hash_size: int = 8) -> int:
@@ -111,33 +127,67 @@ def build_image_info(path: Path) -> ImageInfo:
     )
 
 
-def collect_images(directory: Path, recursive: bool = False) -> list[ImageInfo]:
+def collect_images(
+    directory: Path,
+    recursive: bool = False,
+    cache_file: Path | None = CACHE_FILE,
+) -> list[ImageInfo]:
     image_paths = list(iter_image_paths(directory, recursive=recursive))
     images: list[ImageInfo] = []
-    total = len(image_paths)
 
+    if not image_paths:
+        return images
+
+    cache = _load_cache(cache_file) if cache_file is not None else {}
+
+    to_hash: list[Path] = []
+    for path in image_paths:
+        stat = path.stat()
+        key = str(path)
+        entry = cache.get(key)
+        if (
+            entry is not None
+            and entry["mtime"] == stat.st_mtime
+            and entry["size"] == stat.st_size
+        ):
+            images.append(ImageInfo(path=path, size_bytes=stat.st_size, perceptual_hash=entry["hash"]))
+        else:
+            to_hash.append(path)
+
+    total = len(to_hash)
     if total:
         print(f"Hashing {total} image(s)...")
 
-    if not total:
-        return images
-
-    max_workers = min(32, max(1, (os.cpu_count() or 1) + 4), total)
+    cache_updated = False
     completed = 0
+    max_workers = min(32, max(1, (os.cpu_count() or 1) + 4), total) if total else 1
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_path = {executor.submit(build_image_info, path): path for path in image_paths}
-        for future in as_completed(future_to_path):
-            path = future_to_path[future]
-            try:
-                images.append(future.result())
-            except (OSError, UnidentifiedImageError) as exc:
-                print(f"Skipping unreadable image {path.name}: {exc}", file=sys.stderr)
+    if total:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_path = {executor.submit(build_image_info, path): path for path in to_hash}
+            for future in as_completed(future_to_path):
+                path = future_to_path[future]
+                try:
+                    info = future.result()
+                    images.append(info)
+                    stat = path.stat()
+                    cache[str(path)] = {
+                        "mtime": stat.st_mtime,
+                        "size": stat.st_size,
+                        "hash": info.perceptual_hash,
+                    }
+                    cache_updated = True
+                except (OSError, UnidentifiedImageError) as exc:
+                    print(f"Skipping unreadable image {path.name}: {exc}", file=sys.stderr)
 
-            completed += 1
-            print(f"\r[hash {completed}/{total}]", end="", flush=True)
+                completed += 1
+                print(f"\r[hash {completed}/{total}]", end="", flush=True)
 
-    print()
+        print()
+
+    if cache_file is not None and cache_updated:
+        _save_cache(cache, cache_file)
+
     images.sort(key=lambda image: image.path)
     return images
 

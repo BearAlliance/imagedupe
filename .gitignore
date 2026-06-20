@@ -2,3 +2,4 @@
 .pycache/
 __pycache__/
 .pychace/
+.hash_cache.json

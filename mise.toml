@@ -5,4 +5,4 @@ python = "latest"
 run = "python -m pip install -r requirements.txt"
 
 [tasks.test]
-run = "python -m pytest test_find_duplicates.py test_copy_duplicates.py -v"
+run = "python -m pytest test_find_duplicates.py test_copy_duplicates.py test_hash_cache.py -v"
