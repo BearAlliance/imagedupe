@@ -5,13 +5,15 @@ import pytest
 from PIL import Image
 
 from find_duplicates import (
+    choose_duplicate,
+    move_duplicates,
+)
+from image_utils import (
     ImageInfo,
     average_hash,
-    choose_duplicate,
     format_bytes,
     hamming_distance,
     iter_image_paths,
-    move_duplicates,
     unique_destination,
     visual_difference,
 )
