@@ -8,56 +8,50 @@ import sys
 from pathlib import Path
 
 from duplicate_utils import choose_duplicate, format_bytes, unique_destination
-from image_utils import (
-    ImageInfo,
-    collect_images,
-    images_are_duplicates,
-)
+from video_utils import VideoInfo, collect_videos, videos_are_duplicates
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Find duplicate and near-duplicate images in a directory."
+        description="Find duplicate and near-duplicate videos in a directory."
     )
-    parser.add_argument("directory", help="Directory containing images to compare")
+    parser.add_argument("directory", help="Directory containing videos to compare")
     parser.add_argument(
         "--recursive",
         action="store_true",
-        help="Recursively scan subdirectories for images",
+        help="Recursively scan subdirectories for videos",
     )
     parser.add_argument(
         "--threshold",
         type=int,
         default=6,
-        help="Maximum perceptual hash distance for duplicates (default: 6)",
+        help="Maximum per-frame perceptual hash distance (default: 6)",
     )
     return parser.parse_args()
 
 
-def move_duplicates(
-    images: list[ImageInfo], directory: Path, threshold: int
+def move_video_duplicates(
+    videos: list[VideoInfo], directory: Path, threshold: int
 ) -> tuple[int, int]:
     duplicates_dir = directory / "duplicates"
     moved_paths: set[Path] = set()
     moved_count = 0
     moved_bytes = 0
-    total_images = len(images)
 
-    if total_images:
-        print(f"Comparing {total_images} image(s) for duplicates...")
+    if videos:
+        print(f"Comparing {len(videos)} video(s) for duplicates...")
 
-    for index, image in enumerate(images):
-        if image.path in moved_paths:
+    for index, video in enumerate(videos):
+        if video.path in moved_paths:
             continue
 
-        for candidate in images[index + 1 :]:
+        for candidate in videos[index + 1 :]:
             if candidate.path in moved_paths:
                 continue
-
-            if not images_are_duplicates(image, candidate, threshold):
+            if not videos_are_duplicates(video, candidate, threshold):
                 continue
 
-            duplicate, original = choose_duplicate(image, candidate)
+            duplicate, original = choose_duplicate(video, candidate)
             if duplicate.path in moved_paths:
                 continue
 
@@ -73,7 +67,7 @@ def move_duplicates(
                 f"kept {original.path.name} ({format_bytes(original.size_bytes)})"
             )
 
-            if duplicate.path == image.path:
+            if duplicate.path == video.path:
                 break
 
     return moved_count, moved_bytes
@@ -93,10 +87,10 @@ def main() -> int:
         print("Threshold must be zero or greater.", file=sys.stderr)
         return 1
 
-    images = collect_images(directory, recursive=args.recursive)
-    moved_count, moved_bytes = move_duplicates(images, directory, args.threshold)
-    print(f"Scanned {len(images)} image(s).")
-    print(f"Moved {moved_count} duplicate image(s).")
+    videos = collect_videos(directory, recursive=args.recursive)
+    moved_count, moved_bytes = move_video_duplicates(videos, directory, args.threshold)
+    print(f"Scanned {len(videos)} video(s).")
+    print(f"Moved {moved_count} duplicate video(s).")
     print(f"Total duplicate size: {moved_bytes} bytes ({format_bytes(moved_bytes)})")
     return 0
 

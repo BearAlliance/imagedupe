@@ -7,12 +7,11 @@ import shutil
 import sys
 from pathlib import Path
 
+from duplicate_utils import format_bytes, unique_destination
 from image_utils import (
     ImageInfo,
     collect_images,
-    format_bytes,
     images_are_duplicates,
-    unique_destination,
 )
 
 

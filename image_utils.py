@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from duplicate_utils import format_bytes, hamming_distance, unique_destination
+
 try:
     from PIL import Image, ImageOps, UnidentifiedImageError
 except ImportError:
@@ -67,10 +69,6 @@ def average_hash(path: Path, hash_size: int = 8) -> int:
         if pixel >= average:
             value |= 1
     return value
-
-
-def hamming_distance(left: int, right: int) -> int:
-    return bin(left ^ right).count("1")
 
 
 def visual_difference(
@@ -190,34 +188,3 @@ def collect_images(
 
     images.sort(key=lambda image: image.path)
     return images
-
-
-def unique_destination(destination_dir: Path, original_name: str) -> Path:
-    candidate = destination_dir / original_name
-    if not candidate.exists():
-        return candidate
-
-    stem = Path(original_name).stem
-    suffix = Path(original_name).suffix
-    index = 1
-    while True:
-        candidate = destination_dir / f"{stem}_{index}{suffix}"
-        if not candidate.exists():
-            return candidate
-        index += 1
-
-
-def format_bytes(size_bytes: int) -> str:
-    if size_bytes == 0:
-        return "0 B"
-
-    units = ["B", "KB", "MB", "GB", "TB"]
-    value = float(size_bytes)
-    for unit in units:
-        if value < 1024 or unit == units[-1]:
-            if unit == "B":
-                return f"{int(value)} {unit}"
-            return f"{value:.2f} {unit}"
-        value /= 1024
-
-    return f"{size_bytes} B"

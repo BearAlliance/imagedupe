@@ -3,3 +3,4 @@
 __pycache__/
 .pychace/
 .hash_cache.json
+.video_hash_cache.json
