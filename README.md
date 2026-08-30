@@ -67,6 +67,7 @@ Behavior:
 - Moves the smaller file from each duplicate match into `duplicates/` and keeps the larger file.
 - Uses the lexicographically earlier path as the deterministic keeper when file sizes are equal.
 - Skips unreadable videos with a warning and continues scanning.
+- Falls back to sequential decoding when a valid video does not permit random seeking.
 - Caches video fingerprints in `.video_hash_cache.json` to speed up later scans.
 - Prints the total size of moved duplicate files.
 

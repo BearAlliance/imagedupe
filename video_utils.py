@@ -66,6 +66,10 @@ class VideoInfo:
     samples: tuple[FrameFingerprint, ...]
 
 
+class VideoSeekError(Exception):
+    pass
+
+
 def _load_cache(cache_file: Path) -> dict:
     try:
         cache = json.loads(cache_file.read_text())
@@ -140,29 +144,34 @@ def _fingerprint_frame(frame: av.VideoFrame) -> FrameFingerprint:
 def _frame_at_time(
     container: av.container.InputContainer, target_seconds: float
 ) -> av.VideoFrame:
-    container.seek(int(target_seconds * av.time_base), backward=True)
-    closest_frame = None
-    closest_distance = float("inf")
+    try:
+        container.seek(int(target_seconds * av.time_base), backward=True)
+        closest_frame = None
+        closest_distance = float("inf")
 
-    for frame in container.decode(video=0):
-        if frame.time is None:
-            if closest_frame is None:
+        for frame in container.decode(video=0):
+            if frame.time is None:
+                if closest_frame is None:
+                    closest_frame = frame
+                continue
+
+            distance = abs(float(frame.time) - target_seconds)
+            if distance < closest_distance:
                 closest_frame = frame
-            continue
-
-        distance = abs(float(frame.time) - target_seconds)
-        if distance < closest_distance:
-            closest_frame = frame
-            closest_distance = distance
-        if float(frame.time) >= target_seconds:
-            break
+                closest_distance = distance
+            if float(frame.time) >= target_seconds:
+                break
+    except (OSError, av.FFmpegError) as exc:
+        raise VideoSeekError(str(exc)) from exc
 
     if closest_frame is None:
         raise ValueError(f"could not decode a frame at {target_seconds:.3f} seconds")
     return closest_frame
 
 
-def build_video_info(path: Path) -> VideoInfo:
+def _fingerprints_with_seeking(
+    path: Path,
+) -> tuple[float, tuple[FrameFingerprint, ...]]:
     with av.open(str(path)) as container:
         if not container.streams.video:
             raise ValueError("file has no video stream")
@@ -173,6 +182,56 @@ def build_video_info(path: Path) -> VideoInfo:
             _fingerprint_frame(_frame_at_time(container, duration * position))
             for position in SAMPLE_POSITIONS
         )
+
+    return duration, samples
+
+
+def _fingerprints_sequentially(
+    path: Path,
+) -> tuple[float, tuple[FrameFingerprint, ...]]:
+    with av.open(str(path)) as container:
+        if not container.streams.video:
+            raise ValueError("file has no video stream")
+        stream = container.streams.video[0]
+        stream.thread_type = "AUTO"
+        duration = _duration_seconds(container, stream)
+        targets = [duration * position for position in SAMPLE_POSITIONS]
+        samples: list[FrameFingerprint] = []
+        previous_frame = None
+        previous_time = None
+
+        for frame in container.decode(video=0):
+            if frame.time is None:
+                continue
+
+            frame_time = float(frame.time)
+            while len(samples) < len(targets) and frame_time >= targets[len(samples)]:
+                target = targets[len(samples)]
+                if previous_frame is not None and previous_time is not None and abs(
+                    previous_time - target
+                ) <= abs(frame_time - target):
+                    chosen_frame = previous_frame
+                else:
+                    chosen_frame = frame
+                samples.append(_fingerprint_frame(chosen_frame))
+
+            previous_frame = frame
+            previous_time = frame_time
+
+        if previous_frame is None:
+            raise ValueError("video contains no timestamped frames")
+
+        while len(samples) < len(targets):
+            samples.append(_fingerprint_frame(previous_frame))
+
+    return duration, tuple(samples)
+
+
+def build_video_info(path: Path) -> VideoInfo:
+    try:
+        duration, samples = _fingerprints_with_seeking(path)
+    except VideoSeekError:
+        duration, samples = _fingerprints_sequentially(path)
 
     return VideoInfo(
         path=path,

@@ -123,6 +123,34 @@ def test_build_video_info_matches_reencoded_resolution(tmp_path):
     assert videos_are_duplicates(first, second, threshold=6)
 
 
+def test_build_video_info_falls_back_when_seeking_is_not_permitted(
+    tmp_path, monkeypatch
+):
+    path = _write_video(tmp_path / "nonseekable.mp4")
+
+    def fail_seeking(candidate: Path):
+        raise video_utils.VideoSeekError("[Errno 1] Operation not permitted")
+
+    monkeypatch.setattr(video_utils, "_fingerprints_with_seeking", fail_seeking)
+    info = build_video_info(path)
+
+    assert info.path == path
+    assert len(info.samples) == len(video_utils.SAMPLE_POSITIONS)
+
+
+def test_frame_at_time_identifies_seek_errors():
+    class NonSeekableContainer:
+        def seek(self, offset: int, backward: bool):
+            raise PermissionError(1, "Operation not permitted")
+
+    try:
+        video_utils._frame_at_time(NonSeekableContainer(), 1.0)
+    except video_utils.VideoSeekError as exc:
+        assert "Operation not permitted" in str(exc)
+    else:
+        raise AssertionError("Expected VideoSeekError")
+
+
 def test_collect_videos_uses_cache(tmp_path, monkeypatch):
     path = tmp_path / "clip.mp4"
     path.write_bytes(b"video")
