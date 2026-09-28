@@ -343,3 +343,35 @@ def test_move_duplicates_unique_destination_collision(tmp_path):
     move_duplicates(images, tmp_path, threshold=6)
 
     assert (dupes_dir / "a_1.png").exists()
+
+
+def test_main_reports_out_of_space(tmp_path, monkeypatch, capsys):
+    import errno
+    import sys
+
+    import find_duplicates
+
+    _make_solid_image_file(tmp_path / "a.png", 200)
+    _make_solid_image_file(tmp_path / "b.png", 200)
+    with (tmp_path / "b.png").open("ab") as f:
+        f.write(b"\x00" * 1000)
+
+    def full_disk(self, *args, **kwargs):
+        raise OSError(errno.ENOSPC, "No space left on device", str(self))
+
+    monkeypatch.setattr(Path, "mkdir", full_disk)
+    monkeypatch.setattr(sys, "argv", ["find_duplicates.py", str(tmp_path)])
+    monkeypatch.setattr(
+        find_duplicates,
+        "collect_images",
+        lambda directory, recursive: [
+            ImageInfo(path=p, size_bytes=p.stat().st_size, perceptual_hash=average_hash(p))
+            for p in sorted(directory.glob("*.png"))
+        ],
+    )
+
+    assert find_duplicates.main() == 1
+    err = capsys.readouterr().err
+    assert "No space left on device while writing" in err
+    assert "duplicates" in err
+    assert (tmp_path / "a.png").exists()

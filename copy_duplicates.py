@@ -7,7 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from duplicate_utils import format_bytes, unique_destination
+from duplicate_utils import format_bytes, is_out_of_space, unique_destination
 from image_utils import (
     ImageInfo,
     collect_images,
@@ -37,6 +37,14 @@ def parse_args() -> argparse.Namespace:
         help="Maximum perceptual hash distance for duplicates (default: 6)",
     )
     return parser.parse_args()
+
+
+def copy_file(source: Path, destination: Path) -> None:
+    try:
+        shutil.copy2(str(source), str(destination))
+    except OSError:
+        destination.unlink(missing_ok=True)
+        raise
 
 
 def copy_duplicates(
@@ -82,7 +90,12 @@ def copy_duplicates(
                 processed_dest.add(dst.path)
 
                 copy_dest = unique_destination(dst.path.parent, src.path.name)
-                shutil.copy2(str(src.path), str(copy_dest))
+                try:
+                    copy_file(src.path, copy_dest)
+                except OSError:
+                    # Restore the destination copy so a failed replacement loses nothing
+                    shutil.move(str(dest_dupe_dest), str(dst.path))
+                    raise
                 copied_count += 1
                 moved_count += 1
                 saved_bytes += dst.size_bytes
@@ -114,7 +127,7 @@ def copy_duplicates(
         else:
             # No duplicate found in dest — copy source as-is
             copy_dest = unique_destination(dest_dir, src.path.name)
-            shutil.copy2(str(src.path), str(copy_dest))
+            copy_file(src.path, copy_dest)
             copied_count += 1
             print(f"Copied {src.path.name} ({format_bytes(src.size_bytes)}) -> {copy_dest}")
 
@@ -147,9 +160,21 @@ def main() -> int:
         f"Comparing {len(source_images)} source image(s) against "
         f"{len(dest_images)} destination image(s)..."
     )
-    copied_count, moved_count, saved_bytes = copy_duplicates(
-        source_images, dest_images, args.threshold, destination
-    )
+    try:
+        copied_count, moved_count, saved_bytes = copy_duplicates(
+            source_images, dest_images, args.threshold, destination
+        )
+    except OSError as error:
+        if not is_out_of_space(error):
+            raise
+        location = f" while writing {error.filename}" if error.filename else ""
+        print(
+            f"No space left on device{location}. "
+            "Free up space and run again; "
+            "files already copied or moved remain in place.",
+            file=sys.stderr,
+        )
+        return 1
 
     print(f"Copied {copied_count} image(s) to destination.")
     print(f"Moved {moved_count} duplicate(s) to 'duplicates' folder.")

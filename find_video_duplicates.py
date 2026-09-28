@@ -7,7 +7,12 @@ import shutil
 import sys
 from pathlib import Path
 
-from duplicate_utils import choose_duplicate, format_bytes, unique_destination
+from duplicate_utils import (
+    choose_duplicate,
+    format_bytes,
+    is_out_of_space,
+    unique_destination,
+)
 from video_utils import VideoInfo, collect_videos, videos_are_duplicates
 
 
@@ -88,7 +93,19 @@ def main() -> int:
         return 1
 
     videos = collect_videos(directory, recursive=args.recursive)
-    moved_count, moved_bytes = move_video_duplicates(videos, directory, args.threshold)
+    try:
+        moved_count, moved_bytes = move_video_duplicates(videos, directory, args.threshold)
+    except OSError as error:
+        if not is_out_of_space(error):
+            raise
+        location = f" while writing {error.filename}" if error.filename else ""
+        print(
+            f"No space left on device{location}. "
+            "Free up space and run again; "
+            "files already moved remain in duplicates/.",
+            file=sys.stderr,
+        )
+        return 1
     print(f"Scanned {len(videos)} video(s).")
     print(f"Moved {moved_count} duplicate video(s).")
     print(f"Total duplicate size: {moved_bytes} bytes ({format_bytes(moved_bytes)})")

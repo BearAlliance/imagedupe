@@ -192,3 +192,36 @@ def test_already_processed_source_not_double_moved(tmp_path):
     assert moved == 1
     assert not (src_dir / "photo.png").exists()
     assert (src_dir / "duplicates" / "photo.png").exists()
+
+
+def test_failed_replacement_copy_restores_dest(tmp_path, monkeypatch):
+    import errno
+
+    import copy_duplicates as module
+
+    src_dir = tmp_path / "src"
+    dst_dir = tmp_path / "dst"
+    src_dir.mkdir()
+    dst_dir.mkdir()
+
+    _make_solid_image_file(src_dir / "photo.png", 128)
+    _make_solid_image_file(dst_dir / "photo.png", 128)
+    with (src_dir / "photo.png").open("ab") as f:
+        f.write(b"\x00" * 2000)
+    original_dest_bytes = (dst_dir / "photo.png").read_bytes()
+
+    src_info = _make_info(src_dir / "photo.png")
+    dst_info = _make_info(dst_dir / "photo.png")
+
+    def partial_copy(source, destination):
+        Path(destination).write_bytes(b"partial")
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(module.shutil, "copy2", partial_copy)
+
+    with pytest.raises(OSError):
+        copy_duplicates([src_info], [dst_info], threshold=6, dest_dir=dst_dir)
+
+    assert (dst_dir / "photo.png").read_bytes() == original_dest_bytes
+    assert not (dst_dir / "duplicates" / "photo.png").exists()
+    assert sorted(p.name for p in dst_dir.glob("*.png")) == ["photo.png"]

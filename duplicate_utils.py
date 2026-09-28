@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 from pathlib import Path
 from typing import Protocol, TypeVar
 
@@ -22,6 +23,10 @@ def choose_duplicate(
     if str(first.path) < str(second.path):
         return second, first
     return first, second
+
+
+def is_out_of_space(error: OSError) -> bool:
+    return error.errno in (errno.ENOSPC, errno.EDQUOT)
 
 
 def hamming_distance(left: int, right: int) -> int:
